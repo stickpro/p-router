@@ -103,6 +103,27 @@ func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 				return nil
 			},
 		},
+		{
+			Name:        "proxy-list",
+			Description: "List all proxies",
+			Flags:       []cli.Flag{cfgPathsFlag()},
+			Action: func(ctx context.Context, command *cli.Command) error {
+				conf, err := loadConfig(command.Args().Slice(), command.StringSlice("configs"))
+
+				repo, err := repository.NewSQLiteRepository("proxies.db")
+				if err != nil {
+					log.Fatalf("Failed to create repository: %v", err)
+				}
+				defer repo.Close()
+
+				pr := router.NewProxyRouter(repo)
+				list, _ := pr.GetAllProxies()
+				for _, prx := range list {
+					fmt.Printf("%s:%s@localhost:%s\n", prx.Username, prx.Password, conf.HTTP.Port)
+				}
+				return nil
+			},
+		},
 	}
 }
 
