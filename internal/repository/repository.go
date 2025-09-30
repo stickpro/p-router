@@ -44,6 +44,7 @@ func NewSQLiteRepository(dbPath string) (*SQLiteRepository, error) {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_username ON proxies(username);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_target ON proxies(target);
 	`
 
 	if _, err := db.Exec(createTableSQL); err != nil {
