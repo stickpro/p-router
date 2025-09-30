@@ -1,0 +1,14 @@
+.DS_Store
+.bin
+.idea
+.vscode
+vendor
+*config.yml
+*config.yaml
+configs/config.yaml
+.netrc
+.tmp
+/tmp
+storage/*/*
+/*.txt
+/*.db
