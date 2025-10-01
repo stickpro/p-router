@@ -55,6 +55,10 @@ func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 				},
 			},
 			Action: func(ctx context.Context, command *cli.Command) error {
+				conf, err := loadConfig(command.Args().Slice(), command.StringSlice("configs"))
+				if err != nil {
+					return fmt.Errorf("failed to load config: %w", err)
+				}
 				filePath := command.String("file")
 
 				f, err := os.Open(filePath)
@@ -94,7 +98,7 @@ func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 						continue
 					}
 
-					fmt.Printf("imported proxy %s with user=%s pass=%s\n", line, username, password)
+					fmt.Printf("%s:%s@%s:%s\n", line, username, password, conf.HTTP.Host, conf.HTTP.Port)
 				}
 				if err := scanner.Err(); err != nil {
 					return fmt.Errorf("failed to read file: %w", err)
