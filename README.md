@@ -150,16 +150,16 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 5. Open a Pull Request
 
 ## Roadmap
-
+- [x] Check aliveness of target proxies
+- [x] Automatic removal of dead proxies
+- [x] Configuration file support (YAML/JSON)
 - [ ] REST API for proxy management
 - [ ] Web UI dashboard
-- [ ] Proxy health checks
 - [ ] Load balancing between multiple proxies
 - [ ] Request/response logging
 - [ ] Statistics and metrics
 - [ ] Support for SOCKS5 protocol
 - [ ] Docker support
-- [ ] Configuration file support (YAML/JSON)
 - [ ] Rate limiting per user
 
 ## License

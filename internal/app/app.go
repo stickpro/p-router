@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/stickpro/p-router/internal/repository"
 	"github.com/stickpro/p-router/internal/router"
 	"github.com/stickpro/p-router/internal/server"
+	"github.com/stickpro/p-router/internal/service/checker"
 	"github.com/stickpro/p-router/pkg/logger"
 )
 
@@ -37,11 +37,10 @@ func Run(ctx context.Context, conf *config.Config, l logger.Logger) {
 		}
 	}()
 
-	l.Info("Server started successfully")
-	list, _ := r.GetAllProxies()
-	for _, prx := range list {
-		fmt.Printf("%s:%s@localhost:8081\n", prx.Username, prx.Password)
-	}
+	chkr := checker.New(conf, l, repo)
+
+	go chkr.StartPeriodicCheck(ctx, conf.Checker.Interval)
+
 	<-ctx.Done()
 
 	l.Info("Shutting down server...")

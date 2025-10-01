@@ -8,9 +8,10 @@ import (
 
 type (
 	Config struct {
-		App  AppConfig  `yaml:"app"`
-		HTTP HTTPConfig `yaml:"http"`
-		Log  logger.Config
+		App     AppConfig  `yaml:"app"`
+		HTTP    HTTPConfig `yaml:"http"`
+		Log     logger.Config
+		Checker CheckerConfig `yaml:"checker"`
 	}
 	AppConfig struct {
 		Profile string `yaml:"profile" default:"dev"`
@@ -30,5 +31,11 @@ type (
 	HTTPCorsConfig struct {
 		Enabled        bool     `yaml:"enabled" default:"true" usage:"allows to disable cors" example:"true / false"`
 		AllowedOrigins []string `yaml:"allowed_origins"`
+	}
+
+	CheckerConfig struct {
+		Interval        time.Duration `yaml:"interval" env:"CHECKER_INTERVAL" default:"10m"`
+		CheckURL        string        `yaml:"check_url"`
+		MaxFailedChecks int           `yaml:"max_failed_checks" default:"10"`
 	}
 )
