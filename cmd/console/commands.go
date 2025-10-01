@@ -123,7 +123,7 @@ func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 				pr := router.NewProxyRouter(repo)
 				list, _ := pr.GetAllProxies()
 				for _, prx := range list {
-					fmt.Printf("%s:%s@localhost:%s\n", prx.Username, prx.Password, conf.HTTP.Port)
+					fmt.Printf("%s:%s@%s:%s\n", prx.Username, prx.Password, conf.HTTP.Host, conf.HTTP.Port)
 				}
 				return nil
 			},
