@@ -98,7 +98,7 @@ func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 						continue
 					}
 
-					fmt.Printf("%s:%s@%s:%s\n", line, username, password, conf.HTTP.Host, conf.HTTP.Port)
+					fmt.Printf("%s:%s@%s:%s \n", username, password, conf.HTTP.Host, conf.HTTP.Port)
 				}
 				if err := scanner.Err(); err != nil {
 					return fmt.Errorf("failed to read file: %w", err)
@@ -123,7 +123,7 @@ func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 				pr := router.NewProxyRouter(repo)
 				list, _ := pr.GetAllProxies()
 				for _, prx := range list {
-					fmt.Printf("%s:%s@%s:%s\n", prx.Username, prx.Password, conf.HTTP.Host, conf.HTTP.Port)
+					fmt.Printf("%s:%s@%s:%d\n", prx.Username, prx.Password, conf.HTTP.Host, conf.HTTP.Port)
 				}
 				return nil
 			},
