@@ -94,7 +94,6 @@ func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 					password := randomString(12)
 
 					if err := pr.AddProxy(username, password, line); err != nil {
-						fmt.Printf("failed to add proxy from line %d: %v\n", lineNum, err)
 						continue
 					}
 
