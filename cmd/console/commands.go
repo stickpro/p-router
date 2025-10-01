@@ -53,6 +53,7 @@ func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 					Usage:    "Path to txt file with proxies (host:port per line)",
 					Required: true,
 				},
+				cfgPathsFlag(),
 			},
 			Action: func(ctx context.Context, command *cli.Command) error {
 				conf, err := loadConfig(command.Args().Slice(), command.StringSlice("configs"))
