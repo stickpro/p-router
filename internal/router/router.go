@@ -15,10 +15,28 @@ type IProxyROuter interface {
 }
 
 type ProxyConfig struct {
-	ID       int64
-	Username string
-	Password string
-	Target   string
+	ID         int64
+	Username   string
+	Password   string
+	Target     string // raw target stored in DB (e.g. "host:port" or "socks5://host:port")
+	Protocol   string // "http" or "socks5"
+	TargetAddr string // host:port of the upstream proxy
+	ProxyUser  string // upstream proxy auth (SOCKS5 only)
+	ProxyPass  string // upstream proxy auth (SOCKS5 only)
+}
+
+func configFromModel(model *repository.ProxyModel) *ProxyConfig {
+	pt := model.ParseTarget()
+	return &ProxyConfig{
+		ID:         model.ID,
+		Username:   model.Username,
+		Password:   model.Password,
+		Target:     model.Target,
+		Protocol:   pt.Protocol,
+		TargetAddr: pt.Addr,
+		ProxyUser:  pt.ProxyUser,
+		ProxyPass:  pt.ProxyPass,
+	}
 }
 
 type ProxyRouter struct {
@@ -48,12 +66,7 @@ func (pr *ProxyRouter) loadCache() error {
 	defer pr.mu.Unlock()
 
 	for _, model := range models {
-		pr.cache[model.Username] = &ProxyConfig{
-			ID:       model.ID,
-			Username: model.Username,
-			Password: model.Password,
-			Target:   model.Target,
-		}
+		pr.cache[model.Username] = configFromModel(model)
 	}
 
 	return nil
@@ -72,12 +85,7 @@ func (pr *ProxyRouter) AddProxy(username, password, target string) error {
 		return err
 	}
 
-	pr.cache[username] = &ProxyConfig{
-		ID:       model.ID,
-		Username: model.Username,
-		Password: model.Password,
-		Target:   model.Target,
-	}
+	pr.cache[username] = configFromModel(model)
 
 	return nil
 }
@@ -95,8 +103,14 @@ func (pr *ProxyRouter) UpdateProxy(username, password, target string) error {
 		return err
 	}
 
-	config.Password = password
-	config.Target = target
+	model := &repository.ProxyModel{
+		ID:       config.ID,
+		Username: username,
+		Password: password,
+		Target:   target,
+	}
+	updated := configFromModel(model)
+	*config = *updated
 
 	return nil
 }
@@ -145,12 +159,8 @@ func (pr *ProxyRouter) GetAllProxies() ([]*ProxyConfig, error) {
 
 	result := make([]*ProxyConfig, 0, len(pr.cache))
 	for _, config := range pr.cache {
-		result = append(result, &ProxyConfig{
-			ID:       config.ID,
-			Username: config.Username,
-			Password: config.Password,
-			Target:   config.Target,
-		})
+		cfg := *config
+		result = append(result, &cfg)
 	}
 	return result, nil
 }

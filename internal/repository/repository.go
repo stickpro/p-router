@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -16,6 +18,29 @@ type ProxyModel struct {
 	FailedChecks int
 	LastCheckAt  string
 	CreatedAt    string
+}
+
+type ParsedTarget struct {
+	Protocol  string // "http" or "socks5"
+	Addr      string // host:port
+	ProxyUser string // upstream proxy auth (SOCKS5 only)
+	ProxyPass string // upstream proxy auth (SOCKS5 only)
+}
+
+func (m *ProxyModel) ParseTarget() ParsedTarget {
+	if strings.HasPrefix(m.Target, "socks5://") {
+		u, err := url.Parse(m.Target)
+		if err != nil {
+			return ParsedTarget{Protocol: "socks5", Addr: strings.TrimPrefix(m.Target, "socks5://")}
+		}
+		pt := ParsedTarget{Protocol: "socks5", Addr: u.Host}
+		if u.User != nil {
+			pt.ProxyUser = u.User.Username()
+			pt.ProxyPass, _ = u.User.Password()
+		}
+		return pt
+	}
+	return ParsedTarget{Protocol: "http", Addr: m.Target}
 }
 
 type IProxyRepository interface {

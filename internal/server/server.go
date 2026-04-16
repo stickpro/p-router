@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stickpro/p-router/internal/router"
+	"golang.org/x/net/proxy"
 )
 
 type Server struct {
@@ -67,6 +68,18 @@ func parseProxyAuth(authHeader string) (string, string, bool) {
 	return credentials[0], credentials[1], true
 }
 
+func dialViaSocks5(config *router.ProxyConfig, destination string) (net.Conn, error) {
+	var auth *proxy.Auth
+	if config.ProxyUser != "" {
+		auth = &proxy.Auth{User: config.ProxyUser, Password: config.ProxyPass}
+	}
+	dialer, err := proxy.SOCKS5("tcp", config.TargetAddr, auth, proxy.Direct)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SOCKS5 dialer: %w", err)
+	}
+	return dialer.Dial("tcp", destination)
+}
+
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	username, password, ok := parseProxyAuth(r.Header.Get("Proxy-Authorization"))
 	if !ok {
@@ -90,7 +103,12 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, config *router.ProxyConfig) {
-	targetConn, err := net.DialTimeout("tcp", config.Target, 10*time.Second)
+	if config.Protocol == "socks5" {
+		s.handleConnectViaSocks5(w, r, config)
+		return
+	}
+
+	targetConn, err := net.DialTimeout("tcp", config.TargetAddr, 10*time.Second)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Cannot connect to proxy: %v", err), http.StatusServiceUnavailable)
 		return
@@ -136,8 +154,40 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, config *r
 	io.Copy(clientConn, targetConn)
 }
 
+func (s *Server) handleConnectViaSocks5(w http.ResponseWriter, r *http.Request, config *router.ProxyConfig) {
+	targetConn, err := dialViaSocks5(config, r.Host)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Cannot connect via SOCKS5: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer targetConn.Close()
+
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer clientConn.Close()
+
+	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+
+	go io.Copy(targetConn, clientConn)
+	io.Copy(clientConn, targetConn)
+}
+
 func (s *Server) handleHTTPRequest(w http.ResponseWriter, r *http.Request, config *router.ProxyConfig) {
-	targetConn, err := net.DialTimeout("tcp", config.Target, 10*time.Second)
+	if config.Protocol == "socks5" {
+		s.handleHTTPRequestViaSocks5(w, r, config)
+		return
+	}
+
+	targetConn, err := net.DialTimeout("tcp", config.TargetAddr, 10*time.Second)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Cannot connect to proxy: %v", err), http.StatusServiceUnavailable)
 		return
@@ -156,6 +206,53 @@ func (s *Server) handleHTTPRequest(w http.ResponseWriter, r *http.Request, confi
 	resp, err := http.ReadResponse(reader, r)
 	if err != nil {
 		http.Error(w, "Failed to read proxy response", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+func (s *Server) handleHTTPRequestViaSocks5(w http.ResponseWriter, r *http.Request, config *router.ProxyConfig) {
+	destination := r.URL.Host
+	if destination == "" {
+		destination = r.Host
+	}
+	if !strings.Contains(destination, ":") {
+		destination += ":80"
+	}
+
+	targetConn, err := dialViaSocks5(config, destination)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Cannot connect via SOCKS5: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer targetConn.Close()
+
+	r.Header.Del("Proxy-Authorization")
+	r.Header.Del("Proxy-Connection")
+
+	// Convert proxy-style request (absolute URI) to direct-style (relative URI)
+	r.RequestURI = ""
+	r.URL.Scheme = ""
+	r.URL.Host = ""
+
+	if err := r.Write(targetConn); err != nil {
+		http.Error(w, "Failed to send request", http.StatusInternalServerError)
+		return
+	}
+
+	reader := bufio.NewReader(targetConn)
+	resp, err := http.ReadResponse(reader, r)
+	if err != nil {
+		http.Error(w, "Failed to read response", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()

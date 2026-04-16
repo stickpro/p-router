@@ -13,6 +13,7 @@ import (
 	"github.com/stickpro/p-router/internal/repository"
 	"github.com/stickpro/p-router/pkg/logger"
 	"go.uber.org/zap"
+	"golang.org/x/net/proxy"
 )
 
 type ICheckerService interface {
@@ -167,15 +168,17 @@ func (s *Service) Check(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) checkSingleProxy(ctx context.Context, proxy *repository.ProxyModel) CheckResult {
+func (s *Service) checkSingleProxy(ctx context.Context, p *repository.ProxyModel) CheckResult {
 	result := CheckResult{
-		Username: proxy.Username,
+		Username: p.Username,
 		Success:  false,
 	}
 
 	start := time.Now()
 
-	if !s.checkTCPConnection(ctx, proxy.Target) {
+	pt := p.ParseTarget()
+
+	if !s.checkTCPConnection(ctx, pt.Addr) {
 		result.Error = fmt.Errorf("tcp connection failed")
 		result.Latency = time.Since(start)
 		return result
@@ -186,7 +189,11 @@ func (s *Service) checkSingleProxy(ctx context.Context, proxy *repository.ProxyM
 		testURL = "http://www.google.com"
 	}
 
-	proxyURL, err := url.Parse(fmt.Sprintf("http://%s", proxy.Target))
+	if pt.Protocol == "socks5" {
+		return s.checkViaSocks5(ctx, result, pt, testURL, start)
+	}
+
+	proxyURL, err := url.Parse(fmt.Sprintf("http://%s", pt.Addr))
 	if err != nil {
 		result.Error = fmt.Errorf("invalid proxy URL: %w", err)
 		result.Latency = time.Since(start)
@@ -225,6 +232,65 @@ func (s *Service) checkSingleProxy(ctx context.Context, proxy *repository.ProxyM
 	resp, err := client.Do(req)
 	if err != nil {
 		result.Error = fmt.Errorf("http request failed: %w", err)
+		result.Latency = time.Since(start)
+		return result
+	}
+	defer resp.Body.Close()
+
+	result.Latency = time.Since(start)
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		result.Success = true
+		return result
+	}
+
+	result.Error = fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	return result
+}
+
+func (s *Service) checkViaSocks5(ctx context.Context, result CheckResult, pt repository.ParsedTarget, testURL string, start time.Time) CheckResult {
+	var auth *proxy.Auth
+	if pt.ProxyUser != "" {
+		auth = &proxy.Auth{User: pt.ProxyUser, Password: pt.ProxyPass}
+	}
+
+	socks5Dialer, err := proxy.SOCKS5("tcp", pt.Addr, auth, proxy.Direct)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to create SOCKS5 dialer: %w", err)
+		result.Latency = time.Since(start)
+		return result
+	}
+
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return socks5Dialer.Dial(network, addr)
+		},
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", testURL, nil)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to create request: %w", err)
+		result.Latency = time.Since(start)
+		return result
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_6; en-US) AppleWebKit/602.37 (KHTML, like Gecko) Chrome/50.0.2869.109 Safari/602")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		result.Error = fmt.Errorf("socks5 http request failed: %w", err)
 		result.Latency = time.Since(start)
 		return result
 	}
