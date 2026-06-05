@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/stickpro/p-router/internal/repository"
+	"github.com/stickpro/p-router/internal/vless"
 )
 
 type IProxyROuter interface {
@@ -18,16 +19,17 @@ type ProxyConfig struct {
 	ID         int64
 	Username   string
 	Password   string
-	Target     string // raw target stored in DB (e.g. "host:port" or "socks5://host:port")
-	Protocol   string // "http" or "socks5"
-	TargetAddr string // host:port of the upstream proxy
+	Target     string // raw target stored in DB
+	Protocol   string // "http" | "socks5" | "vless"
+	TargetAddr string // host:port of the upstream proxy (empty for vless)
 	ProxyUser  string // upstream proxy auth (SOCKS5 only)
 	ProxyPass  string // upstream proxy auth (SOCKS5 only)
+	VLESS      *vless.Config // non-nil when Protocol == "vless"
 }
 
 func configFromModel(model *repository.ProxyModel) *ProxyConfig {
 	pt := model.ParseTarget()
-	return &ProxyConfig{
+	cfg := &ProxyConfig{
 		ID:         model.ID,
 		Username:   model.Username,
 		Password:   model.Password,
@@ -37,6 +39,13 @@ func configFromModel(model *repository.ProxyModel) *ProxyConfig {
 		ProxyUser:  pt.ProxyUser,
 		ProxyPass:  pt.ProxyPass,
 	}
+	if pt.Protocol == "vless" {
+		vcfg, err := vless.ParseConfig(model.Target)
+		if err == nil {
+			cfg.VLESS = vcfg
+		}
+	}
+	return cfg
 }
 
 type ProxyRouter struct {

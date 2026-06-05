@@ -12,6 +12,7 @@ import (
 	"github.com/stickpro/p-router/internal/router"
 	"github.com/stickpro/p-router/internal/server"
 	"github.com/stickpro/p-router/internal/service/checker"
+	"github.com/stickpro/p-router/internal/vless"
 	"github.com/stickpro/p-router/pkg/logger"
 )
 
@@ -26,7 +27,15 @@ func Run(ctx context.Context, conf *config.Config, l logger.Logger) {
 
 	r := router.NewProxyRouter(repo)
 
-	srv := server.NewServer(":"+conf.HTTP.Port, r)
+	pool := vless.NewPool()
+	if pool.XrayFound() {
+		l.Info("xray found: VLESS grpc/xhttp/reality will be routed via xray subprocess")
+	} else {
+		l.Info("xray not found: only VLESS tcp/ws transports are supported natively")
+	}
+	defer pool.Close()
+
+	srv := server.NewServer(":"+conf.HTTP.Port, r, pool)
 
 	l.Infof("Proxy router started on :%s", conf.HTTP.Port)
 	l.Infow("Available proxies:")

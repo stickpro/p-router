@@ -184,6 +184,14 @@ func (s *Service) checkSingleProxy(ctx context.Context, p *repository.ProxyModel
 		return result
 	}
 
+	// VLESS is verified by TCP reachability only; the full protocol check
+	// requires an actual VLESS client which is out of scope for the checker.
+	if pt.Protocol == "vless" {
+		result.Success = true
+		result.Latency = time.Since(start)
+		return result
+	}
+
 	testURL := s.conf.Checker.CheckURL
 	if testURL == "" {
 		testURL = "http://www.google.com"

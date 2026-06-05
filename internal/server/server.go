@@ -12,19 +12,22 @@ import (
 	"time"
 
 	"github.com/stickpro/p-router/internal/router"
+	"github.com/stickpro/p-router/internal/vless"
 	"golang.org/x/net/proxy"
 )
 
 type Server struct {
 	addr   string
 	router *router.ProxyRouter
+	pool   *vless.Pool
 	server *http.Server
 }
 
-func NewServer(addr string, r *router.ProxyRouter) *Server {
+func NewServer(addr string, r *router.ProxyRouter, pool *vless.Pool) *Server {
 	s := &Server{
 		addr:   addr,
 		router: r,
+		pool:   pool,
 	}
 
 	s.server = &http.Server{
@@ -103,6 +106,10 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request, config *router.ProxyConfig) {
+	if config.Protocol == "vless" {
+		s.handleConnectViaVLESS(w, r, config)
+		return
+	}
 	if config.Protocol == "socks5" {
 		s.handleConnectViaSocks5(w, r, config)
 		return
@@ -182,6 +189,10 @@ func (s *Server) handleConnectViaSocks5(w http.ResponseWriter, r *http.Request, 
 }
 
 func (s *Server) handleHTTPRequest(w http.ResponseWriter, r *http.Request, config *router.ProxyConfig) {
+	if config.Protocol == "vless" {
+		s.handleHTTPRequestViaVLESS(w, r, config)
+		return
+	}
 	if config.Protocol == "socks5" {
 		s.handleHTTPRequestViaSocks5(w, r, config)
 		return
@@ -265,4 +276,84 @@ func (s *Server) handleHTTPRequestViaSocks5(w http.ResponseWriter, r *http.Reque
 
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
+}
+
+// ─── VLESS handlers ──────────────────────────────────────────────────────────
+
+func (s *Server) handleConnectViaVLESS(w http.ResponseWriter, r *http.Request, config *router.ProxyConfig) {
+	if config.VLESS == nil {
+		http.Error(w, "VLESS config is invalid", http.StatusInternalServerError)
+		return
+	}
+	targetConn, err := s.pool.Dial(r.Context(), config.Target, config.VLESS, r.Host)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("VLESS dial failed: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer targetConn.Close()
+
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
+		return
+	}
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer clientConn.Close()
+
+	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")) //nolint:errcheck
+	go io.Copy(targetConn, clientConn)
+	io.Copy(clientConn, targetConn)
+}
+
+func (s *Server) handleHTTPRequestViaVLESS(w http.ResponseWriter, r *http.Request, config *router.ProxyConfig) {
+	if config.VLESS == nil {
+		http.Error(w, "VLESS config is invalid", http.StatusInternalServerError)
+		return
+	}
+
+	destination := r.URL.Host
+	if destination == "" {
+		destination = r.Host
+	}
+	if !strings.Contains(destination, ":") {
+		destination += ":80"
+	}
+
+	targetConn, err := s.pool.Dial(r.Context(), config.Target, config.VLESS, destination)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("VLESS dial failed: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+	defer targetConn.Close()
+
+	r.Header.Del("Proxy-Authorization")
+	r.Header.Del("Proxy-Connection")
+	r.RequestURI = ""
+	r.URL.Scheme = ""
+	r.URL.Host = ""
+
+	if err := r.Write(targetConn); err != nil {
+		http.Error(w, "Failed to send request", http.StatusInternalServerError)
+		return
+	}
+
+	vlessReader := bufio.NewReader(targetConn)
+	vlessResp, err := http.ReadResponse(vlessReader, r)
+	if err != nil {
+		http.Error(w, "Failed to read response", http.StatusInternalServerError)
+		return
+	}
+	defer vlessResp.Body.Close()
+
+	for key, values := range vlessResp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(vlessResp.StatusCode)
+	io.Copy(w, vlessResp.Body) //nolint:errcheck
 }

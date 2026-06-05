@@ -40,6 +40,13 @@ func (m *ProxyModel) ParseTarget() ParsedTarget {
 		}
 		return pt
 	}
+	if strings.HasPrefix(m.Target, "vless://") {
+		u, err := url.Parse(m.Target)
+		if err != nil {
+			return ParsedTarget{Protocol: "vless"}
+		}
+		return ParsedTarget{Protocol: "vless", Addr: u.Host}
+	}
 	return ParsedTarget{Protocol: "http", Addr: m.Target}
 }
 

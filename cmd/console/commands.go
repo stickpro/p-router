@@ -29,6 +29,7 @@ const (
 
 func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 	return []*cli.Command{
+		vlessCheckCommand(),
 		{
 			Name:        "start",
 			Description: "Start a proxy server",
@@ -140,7 +141,7 @@ func InitCommands(currentAppVersion, appName, _ string) []*cli.Command {
 
 				for _, line := range lines {
 					// If protocol already specified — skip detection
-					if strings.HasPrefix(line, "socks5://") || strings.HasPrefix(line, "http://") {
+					if strings.HasPrefix(line, "socks5://") || strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "vless://") {
 						resultMu.Lock()
 						results = append(results, detectedProxy{target: line, protocol: "known"})
 						resultMu.Unlock()
